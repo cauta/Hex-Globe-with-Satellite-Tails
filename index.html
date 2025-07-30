@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Hex Globe with Satellite Tails</title>
+  <style>
+    :root {
+      --bg-color: #0e0e1a;
+      --accent-color: #9966ff;
+      --globe-color: rgba(100, 100, 255, 0.8);
+      --trail-opacity: 0.6;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: var(--bg-color);
+      font-family: 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      color: #fff;
+    }
+
+    #globeViz {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+
+    canvas {
+      display: block;
+      filter: drop-shadow(0 0 8px var(--accent-color));
+    }
+
+    /* Optional floating title (remove if not needed) */
+    .title {
+      position: absolute;
+      top: 20px;
+      left: 40px;
+      font-size: 1.8rem;
+      font-weight: 600;
+      color: var(--accent-color);
+      letter-spacing: 0.5px;
+      text-shadow: 0 0 10px rgba(153, 102, 255, 0.7);
+      z-index: 10;
+    }
+
+    /* OrbitControls glow on hover (if interactive cursor needed) */
+    canvas:hover {
+      cursor: grab;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="globeViz"></div>
+
+  <!-- Dependencies -->
+  <script src="https://unpkg.com/three@0.137.5/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.137.5/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://unpkg.com/three-globe"></script>
+  <script src="https://unpkg.com/topojson-client@3"></script>
+
+  <script>
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('globeViz').appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 300;
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableZoom = true;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.5;
+
+    const ambientLight = new THREE.AmbientLight(0xbbbbbb);
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(1, 1, 1);
+    scene.add(directionalLight);
+
+    const globe = new ThreeGlobe()
+      .showGlobe(false)
+      .hexPolygonsData([])
+      .hexPolygonResolution(3)
+      .hexPolygonMargin(0.2)
+      .hexPolygonColor(() => 'rgba(100, 100, 255, 0.7)');
+    scene.add(globe);
+
+    // Load countries
+    fetch('https://unpkg.com/world-atlas@2/countries-110m.json')
+      .then(res => res.json())
+      .then(worldData => {
+        const countries = topojson.feature(worldData, worldData.objects.countries).features;
+        globe.hexPolygonsData(countries);
+      });
+
+    // Create satellites with tails
+    const satellites = [];
+    const numSats = 6;
+
+    for (let i = 0; i < numSats; i++) {
+      const group = new THREE.Group();
+
+      // Satellite sphere
+      const sat = new THREE.Mesh(
+        new THREE.SphereGeometry(1.5, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0x9966ff })
+      );
+      group.add(sat);
+
+      // Trail geometry
+      const trailPoints = [];
+      const maxTrail = 30;
+
+      for (let j = 0; j < maxTrail; j++) {
+        trailPoints.push(new THREE.Vector3(0, 0, 0));
+      }
+
+      const trailGeometry = new THREE.BufferGeometry().setFromPoints(trailPoints);
+      const trailMaterial = new THREE.LineBasicMaterial({
+        color: 0x9966ff,
+        transparent: true,
+        opacity: 0.5,
+      });
+      const trail = new THREE.Line(trailGeometry, trailMaterial);
+      group.add(trail);
+
+      // Motion config
+      const radius = 160 + Math.random() * 30;
+      const speed = 0.01 + Math.random() * 0.005;
+      const angleOffset = Math.random() * Math.PI * 2;
+      const inclination = Math.random() * Math.PI;
+      sat.userData = { radius, speed, angleOffset, inclination, theta: Math.random() * Math.PI * 2, trailPoints, trail };
+
+      satellites.push(sat);
+      scene.add(group);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      satellites.forEach(sat => {
+        const d = sat.userData;
+        d.theta += d.speed;
+
+        const x = d.radius * Math.sin(d.theta + d.angleOffset) * Math.cos(d.inclination);
+        const y = d.radius * Math.sin(d.theta + d.angleOffset) * Math.sin(d.inclination);
+        const z = d.radius * Math.cos(d.theta + d.angleOffset);
+
+        sat.position.set(x, y, z);
+
+        // Add new point to the trail
+        d.trailPoints.push(new THREE.Vector3(x, y, z));
+        if (d.trailPoints.length > 30) d.trailPoints.shift();
+
+        d.trail.geometry.setFromPoints(d.trailPoints);
+      });
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+
+</html>
